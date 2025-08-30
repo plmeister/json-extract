@@ -3,7 +3,6 @@ package jsonextract
 import (
 	"bytes"
 	"fmt"
-	"log"
 	"strconv"
 	"strings"
 )
@@ -142,9 +141,13 @@ func (e *Extractor) Extract() error {
 	tok, _ := e.Scanner.Token()
 	switch tok {
 	case StartObject:
-		e.ExtractObject(e.Root, e.ResultWatcher)
+		if err := e.ExtractObject(e.Root, e.ResultWatcher); err != nil {
+			return err
+		}
 	case StartArray:
-		e.ExtractArray(e.Root, e.ResultWatcher)
+		if err := e.ExtractArray(e.Root, e.ResultWatcher); err != nil {
+			return err
+		}
 	default:
 		return fmt.Errorf("unexpected token %s at start of JSON", tok)
 	}
@@ -178,11 +181,11 @@ func (e *Extractor) AllResultsReturned() bool {
 	return true
 }
 
-func (e *Extractor) ExtractObject(node *PathNode, resultNode *PathResultWatcher) {
+func (e *Extractor) ExtractObject(node *PathNode, resultNode *PathResultWatcher) error {
 	for e.Scanner.More() {
 		key, err := e.Scanner.ExpectString()
 		if err != nil {
-			return // handle error
+			return err
 		}
 
 		childNode := node.FindChild(key)
@@ -194,9 +197,13 @@ func (e *Extractor) ExtractObject(node *PathNode, resultNode *PathResultWatcher)
 		tok, val := e.Scanner.Token()
 		switch tok {
 		case StartObject:
-			e.ExtractObject(childNode, resultNode.Children[childNode.Name])
+			if err := e.ExtractObject(childNode, resultNode.Children[childNode.Name]); err != nil {
+				return err
+			}
 		case StartArray:
-			e.ExtractArray(childNode, resultNode.Children[childNode.Name])
+			if err := e.ExtractArray(childNode, resultNode.Children[childNode.Name]); err != nil {
+				return err
+			}
 		default:
 			if childNode.IsTerminal {
 				e.AddResult(childNode, resultNode.Children[childNode.Name], false, string(val))
@@ -206,13 +213,14 @@ func (e *Extractor) ExtractObject(node *PathNode, resultNode *PathResultWatcher)
 		}
 
 		if e.ExtractionComplete {
-			return
+			return nil
 		}
 	}
 	if err := e.Scanner.ExpectEndObject(); err != nil {
-		log.Printf("error: %s", err)
-		return
+		return err
 	}
+
+	return nil
 }
 
 func (e *Extractor) AddResult(node *PathNode, resultNode *PathResultWatcher, wildcardEnd bool, value string) {
@@ -236,7 +244,7 @@ func (e *Extractor) EndArray(node *PathNode, resultNode *PathResultWatcher) {
 	}
 }
 
-func (e *Extractor) ExtractArray(node *PathNode, resultNode *PathResultWatcher) {
+func (e *Extractor) ExtractArray(node *PathNode, resultNode *PathResultWatcher) error {
 	idx := 0
 	for e.Scanner.More() {
 		if node.Filter == nil && node.ArrayIndex != -1 && node.ArrayIndex != idx {
@@ -248,9 +256,13 @@ func (e *Extractor) ExtractArray(node *PathNode, resultNode *PathResultWatcher) 
 		tok, val := e.Scanner.Token()
 		switch tok {
 		case StartObject:
-			e.ExtractObject(node, resultNode)
+			if err := e.ExtractObject(node, resultNode); err != nil {
+				return err
+			}
 		case StartArray:
-			e.ExtractArray(node, resultNode)
+			if err := e.ExtractArray(node, resultNode); err != nil {
+				return err
+			}
 		default:
 			if node.IsTerminal {
 				e.AddResult(node, resultNode, node.ArrayIndex != -1, string(val))
@@ -259,7 +271,7 @@ func (e *Extractor) ExtractArray(node *PathNode, resultNode *PathResultWatcher) 
 		}
 
 		if e.ExtractionComplete {
-			return
+			return nil
 		}
 
 		idx++
@@ -267,7 +279,8 @@ func (e *Extractor) ExtractArray(node *PathNode, resultNode *PathResultWatcher) 
 	e.EndArray(node, resultNode)
 
 	if err := e.Scanner.ExpectEndArray(); err != nil {
-		log.Printf("error: %s", err)
-		return
+		return err
 	}
+
+	return nil
 }
